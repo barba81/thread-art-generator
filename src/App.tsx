@@ -1,13 +1,10 @@
 import "./App.css";
-import { RenderingEngineComponent } from "./core/RenderingEngineComponent";
-import VisualScript from "./page/visualScript/visualScript";
-
-
+import { LayoutPanelPage } from "./page/layoutPanel/LayoutPanel";
 
 function App() {
   return (
     <div className="flex justify-center items-center h-screen">
-      <VisualScript/>
+      <LayoutPanelPage/>
     </div>
   );
 }

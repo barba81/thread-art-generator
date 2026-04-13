@@ -1,76 +1,163 @@
-import { Renderer, Program, Color, Mesh, Triangle } from 'ogl';
+import { Renderer, Program, Color, Mesh, Triangle, Camera, Geometry } from 'ogl';
 import Stats from 'stats-gl';
 
-
 const vertex = /* glsl */ `
-                attribute vec2 uv;
                 attribute vec2 position;
 
-                varying vec2 vUv;
+                uniform mat4 modelMatrix;
+                uniform mat4 viewMatrix;
+                uniform mat4 projectionMatrix;
+                uniform float uTime;
+
 
                 void main() {
-                    vUv = uv;
-                    gl_Position = vec4(position, 0, 1);
+
+                    // positions are 0->1, so make -1->1
+                    vec3 pos = vec3(vec2(position * 2.0 - 1.0),1.0);
+
+                    vec4 mPos = modelMatrix * vec4(pos, 1.0);
+
+                    // add some movement in world space
+                 
+                    vec4 mvPos = viewMatrix * mPos;
+                    gl_PointSize = 20.0 ;
+                    gl_Position = projectionMatrix * mvPos;
                 }
             `;
 
 const fragment = /* glsl */ `
                 precision highp float;
 
-                uniform float uTime;
-                uniform vec3 uColor;
-
-                varying vec2 vUv;
 
                 void main() {
-                    gl_FragColor.rgb = 0.5 + 0.3 * cos(vUv.xyx + uTime) + uColor;
+                    vec2 uv = gl_PointCoord.xy;
+
+                    float circle = smoothstep(0.5, 0.40, length(uv - 0.5));
+
+                    gl_FragColor.rgb = vec3(0.8);
+                    gl_FragColor.a = circle;
+                }
+            `;
+
+            function getRandomInt(max: number) {
+              return Math.floor(Math.random() * max);
+            }
+
+ const vertex2:string = /* glsl */ `
+                attribute vec3 position;
+
+                uniform mat4 modelViewMatrix;
+                uniform mat4 projectionMatrix;
+
+
+                void main() {
+
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+
+                    // gl_PointSize only applicable for gl.POINTS draw mode
+                    gl_PointSize = 15.0;
+                }
+            `;
+
+            const fragment2:string = /* glsl */ `
+                precision highp float;
+
+                uniform float uTime;
+
+
+                void main() {
+                    gl_FragColor.rgb = 0.5 + 0.3  + vec3(0.2, 0.0, 0.1);
+                    gl_LineWidth = 10.0;
+
                     gl_FragColor.a = 1.0;
                 }
             `;
 
 
-export class RenderingEngine {
 
+export class RenderingEngine {
     constructor(canvas: HTMLCanvasElement) {
-        const stats = new Stats({ trackGPU: true, trackHz: true, mode:2, horizontal: false });
+        const stats = new Stats({ trackGPU: true, trackHz: true, mode: 2, horizontal: false });
         stats.init(canvas);
         document.body.appendChild(stats.dom);
 
         const renderer = new Renderer({ canvas: canvas });
         const gl = renderer.gl;
         gl.clearColor(1, 1, 1, 1);
-
+        const camera = new Camera(gl, { fov: 15 });
+        camera.position.z = 20;
         function resize() {
             renderer.setSize(window.innerWidth, window.innerHeight);
+            camera.perspective({ aspect: gl.canvas.width / gl.canvas.height });
+
         }
         window.addEventListener('resize', resize, false);
         resize();
 
+        const num = 100;
+        const position = new Float32Array(num * 2);
 
-        const geometry = new Triangle(gl);
+        for (let i = 0; i < num; i++) {
+            const angle = 2*i*Math.PI/num
+            position.set([Math.cos(angle), Math.sin(angle)], i * 2);
+        }
+        const numOfLines = 100;
+        
+        const linesIndx = new Uint16Array(numOfLines * 2);
+        
+        for (let i = 0; i < numOfLines; i+=1){
+            const x = getRandomInt(num);
+            const y = getRandomInt(num);
+            linesIndx.set([x,y], i * 2);
+        }
+
+        const geometry = new Geometry(gl, {
+            position: { size: 2, data: position },
+        });
 
         const program = new Program(gl, {
             vertex,
             fragment,
             uniforms: {
                 uTime: { value: 0 },
-                uColor: { value: new Color(0.3, 0.2, 0.5) },
+            },
+            transparent: true,
+            depthTest: false,
+        });
+
+        const program2= new Program(gl, {
+            vertex:vertex2,
+            fragment:fragment2,
+            transparent: true,
+            depthTest: false,
+            uniforms: {
+                uTime: { value: 0 },
             },
         });
 
-        const mesh = new Mesh(gl, { geometry, program });
+
+        const geometryLines = new Geometry(gl, {
+            position: { size: 2, data: position },
+            index : {data: linesIndx}
+        });
+
+
+        // Make sure mode is gl.POINTS
+        const nodes = new Mesh(gl, { mode: gl.POINTS, geometry, program });
+        const linesMesh = new Mesh(gl, { mode: gl.LINES, geometry: geometryLines, program:program2 });
 
         requestAnimationFrame(update);
-        function update(t: number) {
-            stats.begin();
+        function update(t) {
+                        stats.begin();
 
             requestAnimationFrame(update);
 
-            program.uniforms.uTime.value = t * 0.001;
 
-            // Don't need a camera if camera uniforms aren't required
-            renderer.render({ scene: mesh });
-            stats.end();
+            program.uniforms.uTime.value = t * 0.001;
+            program2.uniforms.uTime.value = t * 0.001;
+            renderer.render({ scene: nodes, camera });
+            renderer.render({ scene: linesMesh, camera });
+             stats.end();
             stats.update();
         }
     }

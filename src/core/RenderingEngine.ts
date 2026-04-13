@@ -13,14 +13,14 @@ const vertex = /* glsl */ `
                 void main() {
 
                     // positions are 0->1, so make -1->1
-                    vec3 pos = vec3(vec2(position * 2.0 - 1.0),1.0);
+                    vec3 pos = vec3(position, 0.0);
 
                     vec4 mPos = modelMatrix * vec4(pos, 1.0);
 
                     // add some movement in world space
                  
                     vec4 mvPos = viewMatrix * mPos;
-                    gl_PointSize = 20.0 ;
+                    gl_PointSize = 3.0 ;
                     gl_Position = projectionMatrix * mvPos;
                 }
             `;
@@ -55,7 +55,7 @@ const fragment = /* glsl */ `
                     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 
                     // gl_PointSize only applicable for gl.POINTS draw mode
-                    gl_PointSize = 15.0;
+                    gl_PointSize = 50.0;
                 }
             `;
 
@@ -67,7 +67,6 @@ const fragment = /* glsl */ `
 
                 void main() {
                     gl_FragColor.rgb = 0.5 + 0.3  + vec3(0.2, 0.0, 0.1);
-                    gl_LineWidth = 10.0;
 
                     gl_FragColor.a = 1.0;
                 }
@@ -85,7 +84,7 @@ export class RenderingEngine {
         const gl = renderer.gl;
         gl.clearColor(1, 1, 1, 1);
         const camera = new Camera(gl, { fov: 15 });
-        camera.position.z = 20;
+        camera.position.z = 10;
         function resize() {
             renderer.setSize(window.innerWidth, window.innerHeight);
             camera.perspective({ aspect: gl.canvas.width / gl.canvas.height });
@@ -103,12 +102,15 @@ export class RenderingEngine {
         }
         const numOfLines = 100;
         
-        const linesIndx = new Uint16Array(numOfLines * 2);
+        const linesIndx = new Uint16Array(num*num );
         
-        for (let i = 0; i < numOfLines; i+=1){
-            const x = getRandomInt(num);
-            const y = getRandomInt(num);
-            linesIndx.set([x,y], i * 2);
+        let p = 0;
+        for (let i = 0; i < num-1; i+=1){
+            for (let j = i+1; j < num; j+=1){
+
+                linesIndx.set([i,j],  p);
+                p+=2;
+            }
         }
 
         const geometry = new Geometry(gl, {
@@ -155,8 +157,8 @@ export class RenderingEngine {
 
             program.uniforms.uTime.value = t * 0.001;
             program2.uniforms.uTime.value = t * 0.001;
-            renderer.render({ scene: nodes, camera });
             renderer.render({ scene: linesMesh, camera });
+            renderer.render({ scene: nodes, camera,clear: false });
              stats.end();
             stats.update();
         }

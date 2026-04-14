@@ -88,17 +88,23 @@ const fragment = /* glsl */ `
             const backgroundFragment = /* glsl */ `
                 precision highp float;
 
-
+                uniform float uAspect;
                 varying vec2 vUv;
 
                 void main() {
-                    
-                    vec2 auv = fract(100.0*vUv.xy);
-                    float d = distance(auv,vec2(0.5));
-                    gl_FragColor.rgb =vec3( smoothstep(0.1, 0.01, d));
+                   vec2 correctedUv = vUv;
+    correctedUv.x *= uAspect;
 
-
-                    gl_FragColor.a = 1.0;
+    // 2. Scale the grid (using a smaller number for visibility)
+    vec2 gridUv = fract(50.0 * correctedUv);
+    
+    // 3. Calculate distance from center of the "cell"
+    float d = distance(gridUv, vec2(0.5));
+    
+    // 4. Draw the dot
+    float mask = smoothstep(0.1, 0.05, d);
+    
+    gl_FragColor = vec4(vec3(mask), 1.0);
                 }
             `;
 
@@ -114,10 +120,20 @@ export class RenderingEngine {
         gl.clearColor(1, 1, 1, 1);
         const camera = new Camera(gl, { fov: 15 });
         camera.position.z = 10;
+         const backgroundGeometry = new Triangle(gl);
+        const bacgrondProgram = new Program(gl, { vertex: bacgounrVertext, fragment: backgroundFragment,
+  uniforms: {
+                        uAspect: { value: 0 },
+                    },
+
+
+        })
+        const bacgounr = new Mesh(gl ,{geometry: backgroundGeometry, program:bacgrondProgram });
+
         function resize() {
             renderer.setSize(window.innerWidth, window.innerHeight);
             camera.perspective({ aspect: gl.canvas.width / gl.canvas.height });
-
+            bacgrondProgram.uniforms.uAspect.value = gl.canvas.width / gl.canvas.height;
         }
         window.addEventListener('resize', resize, false);
         resize();
@@ -176,10 +192,7 @@ export class RenderingEngine {
         const nodes = new Mesh(gl, { mode: gl.POINTS, geometry, program });
         const linesMesh = new Mesh(gl, { mode: gl.LINES, geometry: geometryLines, program:program2 });
 
-        const backgroundGeometry = new Triangle(gl);
-        const bacgrondProgram = new Program(gl, { vertex: bacgounrVertext, fragment: backgroundFragment})
-        const bacgounr = new Mesh(gl ,{geometry: backgroundGeometry, program:bacgrondProgram });
-
+       
         requestAnimationFrame(update);
         function update(t: number) {
                         stats.begin();

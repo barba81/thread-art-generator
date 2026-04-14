@@ -1,4 +1,5 @@
-import { Renderer, Program, Color, Mesh, Triangle, Camera, Geometry } from 'ogl';
+import { Renderer, Program, Mesh, Camera, Geometry,  NormalProgram, Triangle } from 'ogl';
+
 import Stats from 'stats-gl';
 
 const vertex = /* glsl */ `
@@ -39,11 +40,9 @@ const fragment = /* glsl */ `
                 }
             `;
 
-            function getRandomInt(max: number) {
-              return Math.floor(Math.random() * max);
-            }
+         
 
- const vertex2:string = /* glsl */ `
+        const vertex2:string = /* glsl */ `
                 attribute vec3 position;
 
                 uniform mat4 modelViewMatrix;
@@ -72,6 +71,36 @@ const fragment = /* glsl */ `
                 }
             `;
 
+        
+          
+            const bacgounrVertext = /* glsl */ `
+                attribute vec2 uv;
+                attribute vec2 position;
+
+                varying vec2 vUv;
+
+                void main() {
+                    vUv = uv;
+                    gl_Position = vec4(position, 0, 1);
+                }
+            `;
+
+            const backgroundFragment = /* glsl */ `
+                precision highp float;
+
+
+                varying vec2 vUv;
+
+                void main() {
+                    
+                    vec2 auv = fract(100.0*vUv.xy);
+                    float d = distance(auv,vec2(0.5));
+                    gl_FragColor.rgb =vec3( smoothstep(0.1, 0.01, d));
+
+
+                    gl_FragColor.a = 1.0;
+                }
+            `;
 
 
 export class RenderingEngine {
@@ -93,14 +122,13 @@ export class RenderingEngine {
         window.addEventListener('resize', resize, false);
         resize();
 
-        const num = 100;
+        const num = 3;
         const position = new Float32Array(num * 2);
 
         for (let i = 0; i < num; i++) {
             const angle = 2*i*Math.PI/num
             position.set([Math.cos(angle), Math.sin(angle)], i * 2);
         }
-        const numOfLines = 100;
         
         const linesIndx = new Uint16Array(num*num );
         
@@ -148,8 +176,12 @@ export class RenderingEngine {
         const nodes = new Mesh(gl, { mode: gl.POINTS, geometry, program });
         const linesMesh = new Mesh(gl, { mode: gl.LINES, geometry: geometryLines, program:program2 });
 
+        const backgroundGeometry = new Triangle(gl);
+        const bacgrondProgram = new Program(gl, { vertex: bacgounrVertext, fragment: backgroundFragment})
+        const bacgounr = new Mesh(gl ,{geometry: backgroundGeometry, program:bacgrondProgram });
+
         requestAnimationFrame(update);
-        function update(t) {
+        function update(t: number) {
                         stats.begin();
 
             requestAnimationFrame(update);
@@ -157,11 +189,20 @@ export class RenderingEngine {
 
             program.uniforms.uTime.value = t * 0.001;
             program2.uniforms.uTime.value = t * 0.001;
-            renderer.render({ scene: linesMesh, camera });
+             gl.clearColor(1, 1, 1, 1);
+            renderer.render({ scene: bacgounr,clear: false });
+            renderer.render({ scene: linesMesh, camera,clear: false });
             renderer.render({ scene: nodes, camera,clear: false });
              stats.end();
             stats.update();
         }
     }
 
+
 }
+
+
+// Rukujem se za svojim mrakom
+// Vuce me ka sebi
+// Pobjedit ce znam
+// I sve zvjezde su se prolile za njega

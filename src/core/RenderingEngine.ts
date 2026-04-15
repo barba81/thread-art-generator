@@ -1,4 +1,4 @@
-import { Renderer, Program, Mesh, Camera, Geometry,  NormalProgram, Triangle } from 'ogl';
+import { Renderer, Program, Mesh, Camera, Geometry,  NormalProgram, Triangle, Vec3 } from 'ogl';
 
 import Stats from 'stats-gl';
 
@@ -80,32 +80,49 @@ const fragment = /* glsl */ `
                 varying vec2 vUv;
 
                 void main() {
-                    vUv = uv;
+                    vUv = 2.0*uv-1.0;
                     gl_Position = vec4(position, 0, 1);
                 }
             `;
 
-            const backgroundFragment = /* glsl */ `
-                precision highp float;
+             const backgroundFragment = /* glsl */ `
+precision highp float;
 
-                uniform float uAspect;
-                varying vec2 vUv;
+uniform float uAspect;
+uniform float uZoom;
+uniform vec3 uOffset; // Camera position
 
-                void main() {
-                   vec2 correctedUv = vUv;
-    correctedUv.x *= uAspect;
+varying vec2 vUv;
 
-    // 2. Scale the grid (using a smaller number for visibility)
-    vec2 gridUv = fract(50.0 * correctedUv);
+void main() {
+    // 1. Start with NDC (-1 to 1)
+    vec2 st = vUv;
+
+    // 2. Adjust for Aspect Ratio
+    st.x *= uAspect;
+
+    // 3. Apply Camera Zoom and Position
+    // We divide by uZoom to make dots stay the same world size
+    // We add uOffset to 'slide' the grid as the camera moves
+    vec2 worldSt = (st / uZoom) + uOffset.xy;
+
+    // 4. Define density (how many dots in one world unit)
+    float density = 5.0; 
+    vec2 gridUv = fract(worldSt * density + 0.5);
     
-    // 3. Calculate distance from center of the "cell"
+    // 5. Draw the dot
     float d = distance(gridUv, vec2(0.5));
     
-    // 4. Draw the dot
-    float mask = smoothstep(0.1, 0.05, d);
+    // Make dot size stay consistent even when zooming
+    // We use fwidth for perfect antialiasing regardless of zoom level
+    float dotRadius = 0.05;
+    float antialias =0.0012; 
+    float mask = smoothstep(dotRadius, dotRadius - antialias, d);
     
-    gl_FragColor = vec4(vec3(mask), 1.0);
-                }
+    // Dim the dots slightly so they aren't distracting
+    gl_FragColor = vec4(vec3(0.15) * mask, 1.0);
+}
+
             `;
 
 
@@ -118,27 +135,46 @@ export class RenderingEngine {
         const renderer = new Renderer({ canvas: canvas });
         const gl = renderer.gl;
         gl.clearColor(1, 1, 1, 1);
-        const camera = new Camera(gl, { fov: 15 });
+        const camera = new Camera(gl);
         camera.position.z = 10;
+  // NEW: Define your 2D camera state
+        let zoom = 1;
+        const viewHeight = 5; // This means your screen will show 10 world units vertically at 1x zoom
          const backgroundGeometry = new Triangle(gl);
-        const bacgrondProgram = new Program(gl, { vertex: bacgounrVertext, fragment: backgroundFragment,
-  uniforms: {
-                        uAspect: { value: 0 },
-                    },
+const bacgrondProgram = new Program(gl, { 
+    vertex: bacgounrVertext, 
+    fragment: backgroundFragment,
+    uniforms: {
+        uAspect: { value: 0 },
+        uOffset: { value: new Vec3(0, 0, 0) }, // Camera position
+        uZoom: { value: 1.0 },               // Current zoom level
+    },
+});
 
-
-        })
+        
         const bacgounr = new Mesh(gl ,{geometry: backgroundGeometry, program:bacgrondProgram });
 
-        function resize() {
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            camera.perspective({ aspect: gl.canvas.width / gl.canvas.height });
-            bacgrondProgram.uniforms.uAspect.value = gl.canvas.width / gl.canvas.height;
-        }
-        window.addEventListener('resize', resize, false);
-        resize();
+     function resize() {
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    
+    const aspect = gl.canvas.width / gl.canvas.height;
+    const viewWidth = viewHeight * aspect;
 
-        const num = 3;
+    // Apply zoom to the orthographic bounds
+    camera.orthographic({
+        left: (-viewWidth / 2) / zoom,
+        right: (viewWidth / 2) / zoom,
+        top: (viewHeight / 2) / zoom,
+        bottom: (-viewHeight / 2) / zoom,
+        near: 0.1,
+        far: 100
+    });
+
+    bacgrondProgram.uniforms.uAspect.value = aspect;
+}
+window.addEventListener('resize', resize, false);
+resize();
+        const num = 32;
         const position = new Float32Array(num * 2);
 
         for (let i = 0; i < num; i++) {
@@ -192,30 +228,91 @@ export class RenderingEngine {
         const nodes = new Mesh(gl, { mode: gl.POINTS, geometry, program });
         const linesMesh = new Mesh(gl, { mode: gl.LINES, geometry: geometryLines, program:program2 });
 
+        const speed = 0.05;
+       addEventListener('mousemove', (event) => {
+    if (event.buttons !== 4) return; // Middle click
+
+    // Calculate how many world units one screen pixel represents
+    const unitsPerPixel = (viewHeight / zoom) / window.innerHeight;
+
+    camera.position.x -= event.movementX * unitsPerPixel;
+    camera.position.y += event.movementY * unitsPerPixel;
+    
+    camera.updateMatrixWorld(); // Sync immediately
+});
+const zoomSensitivity = 0.001;
+
+window.addEventListener('wheel', (event) => {
+    event.preventDefault();
+
+    // 1. Get Mouse NDC (-1 to 1)
+    const mouseNDC = new Vec3(
+        (event.clientX / window.innerWidth) * 2 - 1,
+        -(event.clientY / window.innerHeight) * 2 + 1,
+        0
+    );
+
+    // 2. Get World position before zoom
+    // OGL modifies the vector passed into unproject()
+    const preZoomWorld = new Vec3().copy(mouseNDC);
+    camera.unproject(preZoomWorld);
+
+    // 3. Update Zoom
+    const delta = event.deltaY * zoomSensitivity;
+    zoom *= (1 - delta); 
+    zoom = Math.max(0.1, Math.min(zoom, 100)); // Clamp zoom so you don't invert or zoom infinitely
+
+    // 4. Update the camera projection matrix with the new zoom
+    resize();
+    camera.updateMatrixWorld();
+
+    // 5. Get World position after zoom
+    const postZoomWorld = new Vec3().copy(mouseNDC);
+    camera.unproject(postZoomWorld);
+
+    // 6. Shift camera to keep mouse pinned
+    camera.position.x += (preZoomWorld.x - postZoomWorld.x);
+    camera.position.y += (preZoomWorld.y - postZoomWorld.y);
+    
+    camera.updateMatrixWorld(); // Final sync
+}, { passive: false });
+        addEventListener('keydown', (event) => {
+            console.log(event.key);
+            const pos = camera.position;
+            if (event.key === 'a'){
+                pos.x +=1.0*speed;
+            }
+            if (event.key === 'd'){
+                pos.x -=1.0*speed;
+            }
+             if (event.key === 'w'){
+                pos.y -=1.0*speed;
+            }
+              if (event.key === 's'){
+                pos.y +=1.0*speed;
+            }
+        })
        
         requestAnimationFrame(update);
-        function update(t: number) {
-                        stats.begin();
+       function update(t: number) {
+    stats.begin();
+    requestAnimationFrame(update);
 
-            requestAnimationFrame(update);
+    // Update background uniforms to match camera
+    bacgrondProgram.uniforms.uOffset.value.copy(camera.position);
+    bacgrondProgram.uniforms.uZoom.value = zoom * 0.1; // Multiplier to taste
 
+    program.uniforms.uTime.value = t * 0.001;
+    program2.uniforms.uTime.value = t * 0.001;
 
-            program.uniforms.uTime.value = t * 0.001;
-            program2.uniforms.uTime.value = t * 0.001;
-             gl.clearColor(1, 1, 1, 1);
-            renderer.render({ scene: bacgounr,clear: false });
-            renderer.render({ scene: linesMesh, camera,clear: false });
-            renderer.render({ scene: nodes, camera,clear: false });
-             stats.end();
-            stats.update();
-        }
+    renderer.render({ scene: bacgounr }); 
+    renderer.render({ scene: linesMesh, camera, clear: false });
+    renderer.render({ scene: nodes, camera, clear: false });
+    
+    stats.end();
+    stats.update();
+}
     }
 
 
 }
-
-
-// Rukujem se za svojim mrakom
-// Vuce me ka sebi
-// Pobjedit ce znam
-// I sve zvjezde su se prolile za njega

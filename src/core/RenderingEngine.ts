@@ -75,38 +75,45 @@ const fragment = /* glsl */ `
 
         
           
-            const bacgounrVertext = /* glsl */ `#version 300 es
-            in vec2 uv;
-            in vec2 position;
-            out vec2 vUv;
+          const bacgounrVertext = /* glsl */ `#version 300 es
+    in vec2 uv;
+    in vec2 position;
+    out vec2 vUv;
+    
+    uniform float uZoom;
+    uniform float uAspect;
+    uniform vec2 uCenter;
+    uniform float uViewHeight; // NEW: We will pass the camera's viewHeight here
 
-            void main() {
-                vUv = 2.0 * uv - 1.0;
-                gl_Position = vec4(position, 0, 1);
-            }
-            `;
+    void main() {
+        // 1. Get screen coordinates from -1.0 to 1.0
+        vec2 ndc = 2.0 * uv - 1.0;
+
+        // 2. Calculate the exact world bounds based on aspect ratio and view height
+        vec2 worldScale = vec2(uViewHeight * uAspect, uViewHeight) / 2.0;
+
+        // 3. Apply the scale, zoom, and camera center
+        vUv = (ndc * worldScale) / uZoom + uCenter;
+
+        gl_Position = vec4(position, 0.0, 1.0);
+    }
+`;
             const backgroundFragment = /* glsl */ `#version 300 es
             precision highp float;
 
-       uniform float uAspect;
-                uniform float uZoom;
-                uniform vec2 uCenter;    // Must match Vec2 in JS
-
+            
             in vec2 vUv;
             out vec4 outColor;
 
             void main() {
                 vec2 st = vUv;
-                st.x *= uAspect;
-
                 // Perfect world-space mapping
                 vec2 worldPos = st; 
-
-                float density = 5.0; 
-                vec2 gridUv = fract(worldPos * density + 0.5);
+                    
+                vec2 gridUv = fract(worldPos );
                 
                 float d = distance(gridUv, vec2(0.5));
-                float dotRadius = 0.05;
+                float dotRadius = 0.1;
                 float antialias = fwidth(d); 
                 float mask = smoothstep(dotRadius, dotRadius - antialias, d);
                 
@@ -137,6 +144,7 @@ export class RenderingEngine {
                 uAspect: { value: 0 },
                 uCenter: { value: new Vec2(0, 0) }, 
                 uZoom: { value: 1.0 },               
+                uViewHeight: { value: viewHeight }
             },
         });
 
@@ -292,7 +300,7 @@ const zoomSensitivity = 0.001;
 
     // Update background uniforms to match camera
     bacgrondProgram.uniforms.uCenter.value.set(camera.position.x, camera.position.y);
-    bacgrondProgram.uniforms.uZoom.value = zoom * 0.1; // Multiplier to taste
+    bacgrondProgram.uniforms.uZoom.value = zoom; // Multiplier to taste
 
     program.uniforms.uTime.value = t * 0.001;
     program2.uniforms.uTime.value = t * 0.001;

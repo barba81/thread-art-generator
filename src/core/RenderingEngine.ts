@@ -1,4 +1,4 @@
-import { Renderer, Program, Mesh, Camera, Geometry,  NormalProgram, Triangle, Vec3 } from 'ogl';
+import { Renderer, Program, Mesh, Camera, Geometry, Triangle, Vec3, Vec2 } from 'ogl';
 
 import Stats from 'stats-gl';
 
@@ -62,7 +62,9 @@ const fragment = /* glsl */ `
                 precision highp float;
 
                 uniform float uTime;
-
+                uniform float uAspect;
+                uniform float uZoom;
+                uniform vec2 uCenter;    // Must match Vec2 in JS
 
                 void main() {
                     gl_FragColor.rgb = 0.5 + 0.3  + vec3(0.2, 0.0, 0.1);
@@ -73,56 +75,43 @@ const fragment = /* glsl */ `
 
         
           
-            const bacgounrVertext = /* glsl */ `
-                attribute vec2 uv;
-                attribute vec2 position;
+            const bacgounrVertext = /* glsl */ `#version 300 es
+            in vec2 uv;
+            in vec2 position;
+            out vec2 vUv;
 
-                varying vec2 vUv;
-
-                void main() {
-                    vUv = 2.0*uv-1.0;
-                    gl_Position = vec4(position, 0, 1);
-                }
+            void main() {
+                vUv = 2.0 * uv - 1.0;
+                gl_Position = vec4(position, 0, 1);
+            }
             `;
+            const backgroundFragment = /* glsl */ `#version 300 es
+            precision highp float;
 
-             const backgroundFragment = /* glsl */ `
-precision highp float;
+       uniform float uAspect;
+                uniform float uZoom;
+                uniform vec2 uCenter;    // Must match Vec2 in JS
 
-uniform float uAspect;
-uniform float uZoom;
-uniform vec3 uOffset; // Camera position
+            in vec2 vUv;
+            out vec4 outColor;
 
-varying vec2 vUv;
+            void main() {
+                vec2 st = vUv;
+                st.x *= uAspect;
 
-void main() {
-    // 1. Start with NDC (-1 to 1)
-    vec2 st = vUv;
+                // Perfect world-space mapping
+                vec2 worldPos = st; 
 
-    // 2. Adjust for Aspect Ratio
-    st.x *= uAspect;
-
-    // 3. Apply Camera Zoom and Position
-    // We divide by uZoom to make dots stay the same world size
-    // We add uOffset to 'slide' the grid as the camera moves
-    vec2 worldSt = (st / uZoom) + uOffset.xy;
-
-    // 4. Define density (how many dots in one world unit)
-    float density = 5.0; 
-    vec2 gridUv = fract(worldSt * density + 0.5);
-    
-    // 5. Draw the dot
-    float d = distance(gridUv, vec2(0.5));
-    
-    // Make dot size stay consistent even when zooming
-    // We use fwidth for perfect antialiasing regardless of zoom level
-    float dotRadius = 0.05;
-    float antialias =0.0012; 
-    float mask = smoothstep(dotRadius, dotRadius - antialias, d);
-    
-    // Dim the dots slightly so they aren't distracting
-    gl_FragColor = vec4(vec3(0.15) * mask, 1.0);
-}
-
+                float density = 5.0; 
+                vec2 gridUv = fract(worldPos * density + 0.5);
+                
+                float d = distance(gridUv, vec2(0.5));
+                float dotRadius = 0.05;
+                float antialias = fwidth(d); 
+                float mask = smoothstep(dotRadius, dotRadius - antialias, d);
+                
+                outColor = vec4(vec3(0.15) * mask, 1.0);
+            }
             `;
 
 
@@ -137,19 +126,19 @@ export class RenderingEngine {
         gl.clearColor(1, 1, 1, 1);
         const camera = new Camera(gl);
         camera.position.z = 10;
-  // NEW: Define your 2D camera state
+             // NEW: Define your 2D camera state
         let zoom = 1;
-        const viewHeight = 5; // This means your screen will show 10 world units vertically at 1x zoom
+        const viewHeight = 10; // This means your screen will show 5 world units vertically at 1x zoom
          const backgroundGeometry = new Triangle(gl);
-const bacgrondProgram = new Program(gl, { 
-    vertex: bacgounrVertext, 
-    fragment: backgroundFragment,
-    uniforms: {
-        uAspect: { value: 0 },
-        uOffset: { value: new Vec3(0, 0, 0) }, // Camera position
-        uZoom: { value: 1.0 },               // Current zoom level
-    },
-});
+        const bacgrondProgram = new Program(gl, { 
+            vertex: bacgounrVertext, 
+            fragment: backgroundFragment,
+            uniforms: {
+                uAspect: { value: 0 },
+                uCenter: { value: new Vec2(0, 0) }, 
+                uZoom: { value: 1.0 },               
+            },
+        });
 
         
         const bacgounr = new Mesh(gl ,{geometry: backgroundGeometry, program:bacgrondProgram });
@@ -228,6 +217,9 @@ resize();
         const nodes = new Mesh(gl, { mode: gl.POINTS, geometry, program });
         const linesMesh = new Mesh(gl, { mode: gl.LINES, geometry: geometryLines, program:program2 });
 
+
+
+         
         const speed = 0.05;
        addEventListener('mousemove', (event) => {
     if (event.buttons !== 4) return; // Middle click
@@ -242,7 +234,7 @@ resize();
 });
 const zoomSensitivity = 0.001;
 
-window.addEventListener('wheel', (event) => {
+        window.addEventListener('wheel', (event) => {
     event.preventDefault();
 
     // 1. Get Mouse NDC (-1 to 1)
@@ -299,7 +291,7 @@ window.addEventListener('wheel', (event) => {
     requestAnimationFrame(update);
 
     // Update background uniforms to match camera
-    bacgrondProgram.uniforms.uOffset.value.copy(camera.position);
+    bacgrondProgram.uniforms.uCenter.value.set(camera.position.x, camera.position.y);
     bacgrondProgram.uniforms.uZoom.value = zoom * 0.1; // Multiplier to taste
 
     program.uniforms.uTime.value = t * 0.001;

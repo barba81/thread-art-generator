@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "ogl-hw",
-  "version": "0.1.0",
-  "identifier": "com.filip.ogl-hw",
+  "version": "0.1.1",
+  "identifier": "com.ogl-hw",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "ogl-hw",
+        "title": "TAG",
         "width": 800,
         "height": 600
       }
